@@ -281,11 +281,18 @@ function handleFormSubmit(e) {
         incomeAmount: parseFloat(document.getElementById('income-amount').value),
         incomeDate: document.getElementById('income-date').value,
         workYears: parseFloat(document.getElementById('work-years').value),
-        gender: document.querySelector('input[name="gender"]:checked').value,
+        gender: document.querySelector('input[name="gender"]:checked')?.value,
         expectedAnnualIncomes: {},
         pastAnnualIncomes: {},
         calculateBackward: document.getElementById('calculate-backward').checked
     };
+
+    // Validate required fields
+    if (!formData.incomeType || !formData.incomeAmount || !formData.incomeDate || 
+        !formData.workYears || !formData.gender) {
+        alert('נא למלא את כל השדות החובה');
+        return;
+    }
 
     const expectedInputs = document.querySelectorAll('#expected-incomes input');
     expectedInputs.forEach(input => {
@@ -307,32 +314,36 @@ function handleFormSubmit(e) {
 
 function initializeForm() {
     const form = document.getElementById('tax-spread-form');
-    
-    // Remove existing event listener by cloning and replacing the form
-    const newForm = form.cloneNode(true);
-    form.parentNode.replaceChild(newForm, form);
-    
-    // Add the event listener to the new form
-    newForm.addEventListener('submit', handleFormSubmit);
+    const workYearsInput = document.getElementById('work-years');
+    const incomeDateInput = document.getElementById('income-date');
+    const calculateBackwardInput = document.getElementById('calculate-backward');
     
     // Set current date
     const currentDate = new Date();
-    document.getElementById('income-date').valueAsDate = currentDate;
+    incomeDateInput.valueAsDate = currentDate;
+    
+    // Remove existing event listeners
+    form.removeEventListener('submit', handleFormSubmit);
+    workYearsInput.removeEventListener('input', updateDynamicInputs);
+    incomeDateInput.removeEventListener('change', updateDynamicInputs);
+    calculateBackwardInput.removeEventListener('change', updateDynamicInputs);
+    
+    // Add fresh event listeners
+    form.addEventListener('submit', handleFormSubmit);
+    workYearsInput.addEventListener('input', updateDynamicInputs);
+    incomeDateInput.addEventListener('change', updateDynamicInputs);
+    calculateBackwardInput.addEventListener('change', updateDynamicInputs);
     
     // Initialize dynamic inputs
     updateDynamicInputs();
-    
-    // Reattach other necessary event listeners
-    document.getElementById('work-years').addEventListener('input', updateDynamicInputs);
-    document.getElementById('income-date').addEventListener('change', updateDynamicInputs);
-    document.getElementById('calculate-backward').addEventListener('change', updateDynamicInputs);
 }
 
 document.getElementById('new-calculation-button').addEventListener('click', function() {
-    // Reset the form
-    document.getElementById('tax-spread-form').reset();
+    // Reset form and clear fields
+    const form = document.getElementById('tax-spread-form');
+    form.reset();
     
-    // Clear dynamic input sections
+    // Clear dynamic inputs
     document.getElementById('expected-incomes').innerHTML = '';
     document.getElementById('past-incomes').innerHTML = '';
     
@@ -340,19 +351,17 @@ document.getElementById('new-calculation-button').addEventListener('click', func
     document.getElementById('results').style.display = 'none';
     document.getElementById('tax-spread-form').style.display = 'block';
     
-    // Clear any existing chart
+    // Clear existing chart
     if (window.taxChart) {
         window.taxChart.destroy();
         window.taxChart = null;
     }
     
-    // Reinitialize the form and all event listeners
+    // Reinitialize the form
     initializeForm();
     
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-document.addEventListener('DOMContentLoaded', function() {
-    initializeForm();
-});
+document.addEventListener('DOMContentLoaded', initializeForm);
