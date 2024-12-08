@@ -273,11 +273,7 @@ function updateDynamicInputs() {
     }
 }
 
-document.getElementById('work-years').addEventListener('input', updateDynamicInputs);
-document.getElementById('income-date').addEventListener('change', updateDynamicInputs);
-document.getElementById('calculate-backward').addEventListener('change', updateDynamicInputs);
-
-document.getElementById('tax-spread-form').addEventListener('submit', function(e) {
+function handleFormSubmit(e) {
     e.preventDefault();
 
     const formData = {
@@ -307,7 +303,30 @@ document.getElementById('tax-spread-form').addEventListener('submit', function(e
 
     const results = processData(formData);
     displayResults(results);
-});
+}
+
+function initializeForm() {
+    const form = document.getElementById('tax-spread-form');
+    
+    // Remove existing event listener by cloning and replacing the form
+    const newForm = form.cloneNode(true);
+    form.parentNode.replaceChild(newForm, form);
+    
+    // Add the event listener to the new form
+    newForm.addEventListener('submit', handleFormSubmit);
+    
+    // Set current date
+    const currentDate = new Date();
+    document.getElementById('income-date').valueAsDate = currentDate;
+    
+    // Initialize dynamic inputs
+    updateDynamicInputs();
+    
+    // Reattach other necessary event listeners
+    document.getElementById('work-years').addEventListener('input', updateDynamicInputs);
+    document.getElementById('income-date').addEventListener('change', updateDynamicInputs);
+    document.getElementById('calculate-backward').addEventListener('change', updateDynamicInputs);
+}
 
 document.getElementById('new-calculation-button').addEventListener('click', function() {
     // Reset the form
@@ -321,25 +340,19 @@ document.getElementById('new-calculation-button').addEventListener('click', func
     document.getElementById('results').style.display = 'none';
     document.getElementById('tax-spread-form').style.display = 'block';
     
-    // Reset the date to current date
-    const currentDate = new Date();
-    document.getElementById('income-date').valueAsDate = currentDate;
-    
     // Clear any existing chart
     if (window.taxChart) {
         window.taxChart.destroy();
         window.taxChart = null;
     }
     
-    // Reinitialize dynamic inputs
-    updateDynamicInputs();
+    // Reinitialize the form and all event listeners
+    initializeForm();
     
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    const currentDate = new Date();
-    document.getElementById('income-date').valueAsDate = currentDate;
-    updateDynamicInputs();
+    initializeForm();
 });
