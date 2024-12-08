@@ -197,7 +197,14 @@ function displayResults(results) {
 }
 
 function renderResultsChart(results) {
-    const ctx = document.getElementById('results-chart').getContext('2d');
+    const canvas = document.getElementById('results-chart');
+    
+    // Destroy existing chart if it exists
+    if (window.taxChart instanceof Chart) {
+        window.taxChart.destroy();
+    }
+    
+    const ctx = canvas.getContext('2d');
     const chartData = [
         results.noSpread,
         ...results.forwardSpread,
@@ -205,7 +212,8 @@ function renderResultsChart(results) {
         results.backwardSpread
     ].filter(Boolean);
 
-    new Chart(ctx, {
+    // Create new chart and store it in the global variable
+    window.taxChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: chartData.map(r => r.title),
