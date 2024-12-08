@@ -373,3 +373,57 @@ document.getElementById('new-calculation-button').addEventListener('click', func
 });
 
 document.addEventListener('DOMContentLoaded', initializeForm);
+
+// Function to generate PDF
+async function exportToPDF() {
+    // Store the current chart instance
+    const currentChart = window.taxChart;
+    
+    // Create a copy of the results section for PDF
+    const resultsSection = document.getElementById('results');
+    const pdfContent = resultsSection.cloneNode(true);
+    
+    // Add header with date and time
+    const header = document.createElement('div');
+    header.style.textAlign = 'center';
+    header.style.marginBottom = '20px';
+    const now = new Date();
+    header.innerHTML = `
+        <h1 style="color: #2c3e50; margin-bottom: 10px;">דו״ח פריסת מס</h1>
+        <p style="color: #7f8c8d;">הופק בתאריך: ${now.toLocaleDateString('he-IL')} ${now.toLocaleTimeString('he-IL')}</p>
+    `;
+    pdfContent.insertBefore(header, pdfContent.firstChild);
+    
+    // Configure PDF options
+    const opt = {
+        margin: 10,
+        filename: 'דוח_פריסת_מס.pdf',
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { 
+            scale: 2,
+            useCORS: true,
+            logging: false
+        },
+        jsPDF: { 
+            unit: 'mm', 
+            format: 'a4', 
+            orientation: 'portrait'
+        }
+    };
+    
+    try {
+        // Generate PDF
+        await html2pdf().set(opt).from(pdfContent).save();
+        
+        // Restore the original chart if it was destroyed
+        if (!window.taxChart && currentChart) {
+            window.taxChart = currentChart;
+        }
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        alert('אירעה שגיאה בייצוא ה-PDF. אנא נסה שוב.');
+    }
+}
+
+// Add event listener for the export button
+document.getElementById('export-button').addEventListener('click', exportToPDF);
