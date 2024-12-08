@@ -1,4 +1,3 @@
-
 // Tax brackets for years 2018-2024
 const TAX_BRACKETS = {
     2024: [[84120, 0.1], [120720, 0.14], [193800, 0.2], [269280, 0.31], [560280, 0.35], [721560, 0.47], [Infinity, 0.5]],
@@ -311,14 +310,32 @@ document.getElementById('tax-spread-form').addEventListener('submit', function(e
 });
 
 document.getElementById('new-calculation-button').addEventListener('click', function() {
+    // Reset the form
     document.getElementById('tax-spread-form').reset();
+    
+    // Clear dynamic input sections
     document.getElementById('expected-incomes').innerHTML = '';
     document.getElementById('past-incomes').innerHTML = '';
+    
+    // Hide results and show form
     document.getElementById('results').style.display = 'none';
     document.getElementById('tax-spread-form').style.display = 'block';
+    
+    // Reset the date to current date
     const currentDate = new Date();
     document.getElementById('income-date').valueAsDate = currentDate;
-    window.scrollTo(0, 0);
+    
+    // Clear any existing chart
+    if (window.taxChart) {
+        window.taxChart.destroy();
+        window.taxChart = null;
+    }
+    
+    // Reinitialize dynamic inputs
+    updateDynamicInputs();
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 document.addEventListener('DOMContentLoaded', function() {
