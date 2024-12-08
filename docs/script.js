@@ -376,33 +376,97 @@ document.addEventListener('DOMContentLoaded', initializeForm);
 
 // Function to generate PDF
 async function exportToPDF() {
-    // Store the current chart instance
-    const currentChart = window.taxChart;
+    // Create a new container for PDF content
+    const pdfContainer = document.createElement('div');
+    pdfContainer.style.width = '210mm'; // A4 width
+    pdfContainer.style.padding = '20px';
+    pdfContainer.style.direction = 'rtl';
+    pdfContainer.style.backgroundColor = 'white';
     
-    // Create a copy of the results section for PDF
-    const resultsSection = document.getElementById('results');
-    const pdfContent = resultsSection.cloneNode(true);
-    
-    // Add header with date and time
+    // Add header
     const header = document.createElement('div');
     header.style.textAlign = 'center';
     header.style.marginBottom = '20px';
     const now = new Date();
     header.innerHTML = `
-        <h1 style="color: #2c3e50; margin-bottom: 10px;">דו״ח פריסת מס</h1>
+        <h1 style="color: #2c3e50; margin-bottom: 10px; font-family: Rubik, sans-serif;">דו״ח פריסת מס</h1>
         <p style="color: #7f8c8d;">הופק בתאריך: ${now.toLocaleDateString('he-IL')} ${now.toLocaleTimeString('he-IL')}</p>
     `;
-    pdfContent.insertBefore(header, pdfContent.firstChild);
+    pdfContainer.appendChild(header);
+
+    // Add form data summary
+    const formSummary = document.createElement('div');
+    formSummary.style.marginBottom = '20px';
+    formSummary.innerHTML = `
+        <h2 style="color: #2c3e50; margin-bottom: 10px;">פרטי החישוב</h2>
+        <p>סוג הכנסה: ${document.getElementById('income-type').options[document.getElementById('income-type').selectedIndex].text}</p>
+        <p>סכום ההכנסה: ${formatCurrency(parseFloat(document.getElementById('income-amount').value))}</p>
+        <p>תאריך: ${new Date(document.getElementById('income-date').value).toLocaleDateString('he-IL')}</p>
+        <p>שנות עבודה: ${document.getElementById('work-years').value}</p>
+        <p>מגדר: ${document.querySelector('input[name="gender"]:checked').value === 'male' ? 'גבר' : 'אישה'}</p>
+    `;
+    pdfContainer.appendChild(formSummary);
+
+    // Add results
+    const resultsContent = document.createElement('div');
+    resultsContent.style.marginBottom = '20px';
     
+    // Add optimal result
+    const optimalResult = document.getElementById('optimal-result').cloneNode(true);
+    const totalSavings = document.getElementById('total-savings').cloneNode(true);
+    resultsContent.appendChild(optimalResult);
+    resultsContent.appendChild(totalSavings);
+    
+    // Add other results
+    ['no-spread-result', 'spread-options-no-delay', 'spread-options-with-delay'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element && element.innerHTML.trim()) {
+            resultsContent.appendChild(element.cloneNode(true));
+        }
+    });
+    
+    pdfContainer.appendChild(resultsContent);
+
+    // Add chart
+    if (window.taxChart) {
+        const chartContainer = document.createElement('div');
+        chartContainer.style.marginTop = '20px';
+        chartContainer.style.marginBottom = '20px';
+        chartContainer.style.height = '400px';
+        
+        const canvas = document.createElement('canvas');
+        chartContainer.appendChild(canvas);
+        
+        // Create a new chart instance for PDF
+        const ctx = canvas.getContext('2d');
+        const chartData = window.taxChart.data;
+        const chartOptions = window.taxChart.options;
+        
+        new Chart(ctx, {
+            type: 'bar',
+            data: chartData,
+            options: {
+                ...chartOptions,
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+        
+        pdfContainer.appendChild(chartContainer);
+    }
+
     // Configure PDF options
     const opt = {
-        margin: 10,
+        margin: [10, 10, 10, 10],
         filename: 'דוח_פריסת_מס.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { 
             scale: 2,
             useCORS: true,
-            logging: false
+            logging: true,
+            allowTaint: true,
+            foreignObjectRendering: true
         },
         jsPDF: { 
             unit: 'mm', 
@@ -410,15 +474,17 @@ async function exportToPDF() {
             orientation: 'portrait'
         }
     };
-    
+
     try {
-        // Generate PDF
-        await html2pdf().set(opt).from(pdfContent).save();
+        // Add the container to the document temporarily
+        document.body.appendChild(pdfContainer);
         
-        // Restore the original chart if it was destroyed
-        if (!window.taxChart && currentChart) {
-            window.taxChart = currentChart;
-        }
+        // Generate PDF
+        await html2pdf().set(opt).from(pdfContainer).save();
+        
+        // Remove the temporary container
+        document.body.removeChild(pdfContainer);
+        
     } catch (error) {
         console.error('Error generating PDF:', error);
         alert('אירעה שגיאה בייצוא ה-PDF. אנא נסה שוב.');
