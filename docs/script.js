@@ -1,3 +1,15 @@
+// Constants for income types and their spread directions
+const INCOME_TYPES = {
+    severance: { name: 'מענק פרישה', canSpreadForward: true },
+    'death-grant': { name: 'מענק עקב פטירה', canSpreadForward: true },
+    'pension-cap': { name: 'היוון קצבה', canSpreadForward: true },
+    'salary-diff': { name: 'הפרשי שכר וקצבה', canSpreadForward: false },
+    vacation: { name: 'פידיון ימי חופשה', canSpreadForward: false },
+    'pension-sequence': { name: 'חזרה מרצף קצבה', canSpreadForward: false },
+    'severance-sequence': { name: 'חזרה מרצף פיצויים', canSpreadForward: false },
+    'maternity-reserve': { name: 'דמי לידה/מילואים', canSpreadForward: false }
+};
+
 // Tax brackets for years 2018-2024
 const TAX_BRACKETS = {
     2024: [[84120, 0.1], [120720, 0.14], [193800, 0.2], [269280, 0.31], [560280, 0.35], [721560, 0.47], [Infinity, 0.5]],
@@ -9,13 +21,57 @@ const TAX_BRACKETS = {
     2018: [[74880, 0.1], [107400, 0.14], [172320, 0.2], [239520, 0.31], [498360, 0.35], [641880, 0.47], [Infinity, 0.5]]
 };
 
+// Variable to store the chart instance
+let currentChart = null;
+
+// חישוב שנות וותק בין תאריך תחילת עבודה לתאריך פרישה
+function calculateWorkYears(startDate, endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return 0;
+    }
+
+    if (start >= end) {
+        return 0;
+    }
+
+    const yearsDiff = end.getFullYear() - start.getFullYear();
+    const monthsDiff = end.getMonth() - start.getMonth();
+    const daysDiff = end.getDate() - start.getDate();
+    
+    let totalMonths = yearsDiff * 12 + monthsDiff + (daysDiff >= 0 ? 0 : -1);
+    let years = Math.floor(totalMonths / 12);
+    let months = totalMonths % 12;
+    
+    const workYearsDisplay = document.getElementById('work-years-display');
+    if (workYearsDisplay) {
+        workYearsDisplay.textContent = `ותק: ${years} שנים ו-${months} חודשים`;
+    }
+    
+    return Math.max(0, Math.round(totalMonths / 6) / 2); // Round to nearest 0.5
+}
+
+// חישוב מספר שנות פריסה אפשריות
 function calculateSpreadYears(workYears) {
     const spreadYears = Math.round(workYears / 4 * 2) / 2;
     return Math.max(2, Math.min(6, spreadYears));
 }
 
+// חישוב המס בהתחשב בסכום ההכנסה ובשנת הפריסה
 function calculateTax(income, year, gender) {
+    if (income === undefined || year === undefined || gender === undefined) {
+        console.error('Missing parameters in calculateTax:', { income, year, gender });
+        return 0;
+    }
+
     const brackets = TAX_BRACKETS[Math.min(year, 2024)];
+    if (!brackets || !Array.isArray(brackets) || brackets.length === 0) {
+        console.error('Invalid tax brackets for year:', year);
+        return 0;
+    }
+
     let tax = 0;
     for (let i = 0; i < brackets.length; i++) {
         const [bracket, rate] = brackets[i];
@@ -23,15 +79,20 @@ function calculateTax(income, year, gender) {
         tax += taxable * rate;
         if (income <= bracket) break;
     }
+
     const creditPoints = gender === 'male' ? 2.25 : 2.75;
     const taxCredit = creditPoints * 2904;
     return Math.max(0, tax - taxCredit);
 }
 
+// חישוב מס הפריסה
 function calculateSpreadTax(data, spreadYears, direction = 'forward', delay = false) {
+    console.log('Calculate spread tax input:', { data, spreadYears, direction, delay });
+    
     const totalIncome = data.incomeAmount;
     const annualSpread = totalIncome / spreadYears;
-    const incomeYear = new Date(data.incomeDate).getFullYear();
+    const incomeDate = new Date(data.incomeDate);
+    const incomeYear = incomeDate.getFullYear();
     let totalTax = 0;
     const taxPerYear = [];
     
@@ -39,15 +100,15 @@ function calculateSpreadTax(data, spreadYears, direction = 'forward', delay = fa
     let annualIncomes;
     
     if (direction === 'forward') {
-        const startYear = incomeYear + (delay ? 1 : 0);
-        yearsRange = Array.from({length: spreadYears}, (_, i) => startYear + i);
-        annualIncomes = data.expectedAnnualIncomes;
+        yearsRange = Array.from({length: spreadYears}, (_, i) => incomeYear + i);
+        annualIncomes = data.expectedAnnualIncomes || {};
     } else {
         yearsRange = Array.from({length: spreadYears}, (_, i) => incomeYear - i).reverse();
-        annualIncomes = {...data.pastAnnualIncomes, ...data.expectedAnnualIncomes};
+        annualIncomes = data.pastAnnualIncomes || {};
     }
     
-    for (const year of yearsRange) {
+    for (let i = 0; i < yearsRange.length; i++) {
+        const year = yearsRange[i];
         const baseIncome = annualIncomes[year] || 0;
         const totalYearIncome = baseIncome + annualSpread;
         const tax = calculateTax(totalYearIncome, year, data.gender);
@@ -57,10 +118,15 @@ function calculateSpreadTax(data, spreadYears, direction = 'forward', delay = fa
         taxPerYear.push([year, spreadTax]);
     }
     
+    console.log('Tax per year calculated:', taxPerYear);
+    
     return [totalTax, taxPerYear];
 }
 
+// עיבוד הנתונים והכנת התוצאות להצגה
 function processData(data) {
+    console.log('Processing data:', data);
+    
     const spreadYears = calculateSpreadYears(data.workYears);
     const incomeDate = new Date(data.incomeDate);
     const incomeYear = incomeDate.getFullYear();
@@ -140,21 +206,7 @@ function processData(data) {
     return results;
 }
 
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(amount);
-}
-
-function createResultCard(option, isBest = false) {
-    return `
-        <div class="result-card ${isBest ? 'best-option' : ''}">
-            <h4><i class="fas fa-chart-line"></i> ${option.title}</h4>
-            <p><i class="fas fa-money-bill-wave"></i> סך המס: ${formatCurrency(option.tax)}</p>
-            <p><i class="fas fa-hand-holding-usd"></i> הכנסה נטו: ${formatCurrency(option.netIncome)}</p>
-            <p><i class="fas fa-percent"></i> שיעור מס ממוצע: ${option.averageTaxRate.toFixed(1)}%</p>
-        </div>
-    `;
-}
-
+// תצוגת התוצאות והצגת ההמלצה האופטימלית
 function displayResults(results) {
     const resultsSection = document.getElementById('results');
     const noSpreadResult = document.getElementById('no-spread-result');
@@ -163,37 +215,114 @@ function displayResults(results) {
     const delaySpreadColumn = document.getElementById('delay-spread-column');
     const optimalResult = document.getElementById('optimal-result');
     const totalSavings = document.getElementById('total-savings');
-    
+    const taxTable = document.getElementById('tax-table');
+    const newCalculationButton = document.getElementById('new-calculation-button');
+
+    if (!resultsSection || !noSpreadResult || !spreadOptionsNoDelay || !optimalResult || !totalSavings) {
+        console.error('Required elements not found in the DOM');
+        return;
+    }
+
+    // Reset any existing content
+    noSpreadResult.innerHTML = '';
+    spreadOptionsNoDelay.innerHTML = '';
+    if (spreadOptionsWithDelay) {
+        spreadOptionsWithDelay.innerHTML = '';
+    }
+    optimalResult.innerHTML = '';
+
+    // Show the results section and new calculation button
+    resultsSection.style.display = 'block';
+    if (newCalculationButton) {
+        newCalculationButton.style.display = 'block';
+    }
+
+    // Display optimal result first
+    optimalResult.innerHTML = createResultCard(results.bestOption, true);
+
+    // Display no spread result
     noSpreadResult.innerHTML = createResultCard(results.noSpread);
-    
+
+    // Display forward spread options
     let spreadOptionsNoDelayHtml = '';
     results.forwardSpread.forEach(option => {
         spreadOptionsNoDelayHtml += createResultCard(option);
     });
-    if (results.backwardSpread) {
-        spreadOptionsNoDelayHtml += createResultCard(results.backwardSpread);
-    }
     spreadOptionsNoDelay.innerHTML = spreadOptionsNoDelayHtml;
-    
-    if (results.delaySpread.length > 0) {
+
+    // Display delay spread options if available
+    if (results.delaySpread.length > 0 && spreadOptionsWithDelay && delaySpreadColumn) {
         let spreadOptionsWithDelayHtml = '';
         results.delaySpread.forEach(option => {
             spreadOptionsWithDelayHtml += createResultCard(option);
         });
         spreadOptionsWithDelay.innerHTML = spreadOptionsWithDelayHtml;
         delaySpreadColumn.style.display = 'block';
-    } else {
+    } else if (delaySpreadColumn) {
         delaySpreadColumn.style.display = 'none';
     }
-    
-    optimalResult.innerHTML = createResultCard(results.bestOption, true);
-    
+
+    // Display total savings
     const savings = results.noSpread.tax - results.bestOption.tax;
     totalSavings.textContent = `חיסכון כולל: ${formatCurrency(savings)}`;
-    
+
+    // Keep all dropdown contents closed by default
+    const dropdownContents = resultsSection.querySelectorAll('.dropdown-content');
+    dropdownContents.forEach(content => {
+        content.style.display = 'none';
+        const button = content.closest('.result-category').querySelector('.dropdown-toggle');
+        if (button) {
+            button.textContent = '▼';
+            button.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    // Create and display tax table
+    const taxTableContainer = document.getElementById('tax-table');
+    if (taxTableContainer) {
+        let tableHtml = `
+            <table class="tax-table">
+                <thead>
+                    <tr>
+                        <th>שנות פריסה</th>
+                        <th>סה"כ מס</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td>${formatCurrency(results.noSpread.tax)}</td>
+                    </tr>`;
+        
+        results.forwardSpread.forEach((option, index) => {
+            tableHtml += `
+                <tr>
+                    <td>${index + 2}</td>
+                    <td>${formatCurrency(option.tax)}</td>
+                </tr>`;
+        });
+        
+        tableHtml += '</tbody></table>';
+        taxTableContainer.innerHTML = tableHtml;
+    }
+
+    // Render the results chart
     renderResultsChart(results);
-    
-    resultsSection.style.display = 'block';
+
+    // Scroll to results
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+function createResultCard(option, isBestOption = false) {
+    return `
+        <div class="result-card">
+            <h4>${option.title}</h4>
+            <p><i class="fas fa-money-bill-wave"></i> סך המס: ${formatCurrency(option.tax)}</p>
+            <p><i class="fas fa-hand-holding-usd"></i> הכנסה נטו: ${formatCurrency(option.netIncome)}</p>
+            <p><i class="fas fa-percent"></i> שיעור מס ממוצע: ${option.averageTaxRate.toFixed(1)}%</p>
+            ${isBestOption ? '<p><i class="fas fa-check-circle"></i> האפשרות הטובה ביותר</p>' : ''}
+        </div>
+    `;
 }
 
 function renderResultsChart(results) {
@@ -233,6 +362,11 @@ function renderResultsChart(results) {
                     title: {
                         display: true,
                         text: 'סכום המס (₪)'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return formatCurrency(value);
+                        }
                     }
                 }
             },
@@ -243,133 +377,336 @@ function renderResultsChart(results) {
                 title: {
                     display: true,
                     text: 'השוואת אפשרויות פריסת מס'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return formatCurrency(context.raw);
+                        }
+                    }
                 }
             }
         }
     });
 }
 
+// חישוב סך ההכנסות והכנות דינמיות להזנה
 function createDynamicInputs(containerId, startYear, endYear) {
     const container = document.getElementById(containerId);
+    if (!container) return;
+
     container.innerHTML = '';
     for (let year = startYear; year <= endYear; year++) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'input-wrapper';
+        
+        const label = document.createElement('label');
+        label.textContent = `${year}`;
+        label.htmlFor = `${containerId}-${year}`;
+        
         const input = document.createElement('input');
         input.type = 'number';
         input.id = `${containerId}-${year}`;
         input.name = `${containerId}-${year}`;
-        input.placeholder = `הכנסה לשנת ${year}`;
+        input.placeholder = `הכנסה`;
         input.min = '0';
-        input.step = '0.01';
-        container.appendChild(input);
+        input.step = '1';
+        
+        wrapper.appendChild(label);
+        wrapper.appendChild(input);
+        container.appendChild(wrapper);
     }
 }
 
+// עדכון השדות הדינמיים לפי סוג המענק ושנות הפריסה
 function updateDynamicInputs() {
-    const workYears = parseFloat(document.getElementById('work-years').value) || 0;
-    const incomeDate = new Date(document.getElementById('income-date').value);
+    const workStartDateInput = document.getElementById('work-start-date');
+    const incomeDateInput = document.getElementById('income-date');
+    const incomeTypeSelect = document.getElementById('income-type');
+
+    const workStartDate = new Date(workStartDateInput.value);
+    const incomeDate = new Date(incomeDateInput.value);
+    const workYears = calculateWorkYears(workStartDate, incomeDate);
     const currentYear = incomeDate.getFullYear();
     const spreadYears = calculateSpreadYears(workYears);
 
-    createDynamicInputs('expected-incomes', currentYear, currentYear + Math.floor(spreadYears));
-    
+    const incomeType = incomeTypeSelect.value;
+    const forwardSpreadTypes = ['severance', 'death-grant', 'pension-cap'];
+    const isForwardSpread = forwardSpreadTypes.includes(incomeType);
+
+    const forwardSection = document.getElementById('forward-section');
     const backwardSection = document.getElementById('backward-section');
-    if (document.getElementById('calculate-backward').checked) {
-        backwardSection.style.display = 'block';
-        createDynamicInputs('past-incomes', Math.max(currentYear - Math.floor(workYears), 2018), currentYear - 1);
-    } else {
-        backwardSection.style.display = 'none';
+
+    if (forwardSection && backwardSection) {
+        if (isForwardSpread) {
+            forwardSection.style.display = 'block';
+            backwardSection.style.display = 'none';
+            createDynamicInputs('expected-incomes', currentYear, currentYear + Math.floor(spreadYears));
+        } else {
+            forwardSection.style.display = 'none';
+            backwardSection.style.display = 'block';
+            createDynamicInputs('past-incomes', Math.max(currentYear - Math.floor(workYears), 2018), currentYear - 1);
+        }
     }
 }
 
+// בדיקת תקינות תאריכים
+function validateDateInputs() {
+    const workStartDate = document.getElementById('work-start-date').value;
+    const incomeDate = document.getElementById('income-date').value;
+    
+    if (!workStartDate || !incomeDate) {
+        return true; // Allow continued input
+    }
+
+    const workStartDateObj = new Date(workStartDate);
+    const incomeDateObj = new Date(incomeDate);
+    
+    if (isNaN(workStartDateObj.getTime()) || isNaN(incomeDateObj.getTime())) {
+        alert('נא להזין תאריכים תקפים.');
+        return false;
+    }
+    
+    if (workStartDateObj >= incomeDateObj) {
+        alert('תאריך תחילת העבודה חייב להיות לפני תאריך הפרישה.');
+        return false;
+    }
+    return true;
+}
+
+// פונקציות הדפסה וייצוא ל-PDF
+function printResults() {
+    window.print();
+}
+
+function exportToPDF() {
+    const { jsPDF } = window.jspdf;
+    const resultsSection = document.getElementById('results');
+    if (!resultsSection) {
+        console.error('Results section not found');
+        return;
+    }
+
+    html2canvas(resultsSection).then(canvas => {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'mm',
+            format: 'a4',
+        });
+
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save('tax_spread_results.pdf');
+    });
+}
+
+// איפוס טופס והתחלת חישוב מחדש
+function resetForm() {
+    const form = document.getElementById('tax-spread-form');
+    if (form) {
+        form.reset();
+        // Remove old event listener
+        form.removeEventListener('submit', handleFormSubmit);
+        // Add new event listener
+        form.addEventListener('submit', handleFormSubmit);
+    }
+
+    const expectedIncomes = document.getElementById('expected-incomes');
+    if (expectedIncomes) {
+        expectedIncomes.innerHTML = '';
+    }
+
+    const pastIncomes = document.getElementById('past-incomes');
+    if (pastIncomes) {
+        pastIncomes.innerHTML = '';
+    }
+
+    const results = document.getElementById('results');
+    if (results) {
+        results.style.display = 'none';
+    }
+
+    const newCalculationButton = document.getElementById('new-calculation-button');
+    if (newCalculationButton) {
+        newCalculationButton.style.display = 'none';
+    }
+
+    const workYearsDisplay = document.getElementById('work-years-display');
+    if (workYearsDisplay) {
+        workYearsDisplay.textContent = '';
+    }
+
+    // Destroy existing chart if it exists
+    if (currentChart) {
+        currentChart.destroy();
+        currentChart = null;
+    }
+
+    // Reinitialize the calculator
+    initializeCalculator();
+}
+
+// טיפול בהגשת הטופס
 function handleFormSubmit(e) {
     e.preventDefault();
+
+    if (!validateDateInputs()) {
+        return;
+    }
 
     const formData = {
         incomeType: document.getElementById('income-type').value,
         incomeAmount: parseFloat(document.getElementById('income-amount').value),
         incomeDate: document.getElementById('income-date').value,
-        workYears: parseFloat(document.getElementById('work-years').value),
+        workStartDate: document.getElementById('work-start-date').value,
+        workYears: calculateWorkYears(
+            document.getElementById('work-start-date').value,
+            document.getElementById('income-date').value
+        ),
         gender: document.querySelector('input[name="gender"]:checked')?.value,
         expectedAnnualIncomes: {},
-        pastAnnualIncomes: {},
-        calculateBackward: document.getElementById('calculate-backward').checked
+        pastAnnualIncomes: {}
     };
 
-    // Validate required fields
-    if (!formData.incomeType || !formData.incomeAmount || !formData.incomeDate || 
-        !formData.workYears || !formData.gender) {
+    if (!formData.incomeType || !formData.incomeAmount || !formData.incomeDate || !formData.workStartDate || !formData.gender) {
         alert('נא למלא את כל השדות החובה');
         return;
     }
 
+    // Collect expected annual incomes
     const expectedInputs = document.querySelectorAll('#expected-incomes input');
-    expectedInputs.forEach(input => {
-        const year = parseInt(input.id.split('-')[2]);
-        formData.expectedAnnualIncomes[year] = parseFloat(input.value) || 0;
-    });
-
-    if (formData.calculateBackward) {
-        const pastInputs = document.querySelectorAll('#past-incomes input');
-        pastInputs.forEach(input => {
-            const year = parseInt(input.id.split('-')[2]);
-            formData.pastAnnualIncomes[year] = parseFloat(input.value) || 0;
+    if (expectedInputs) {
+        expectedInputs.forEach(input => {
+            if (input && input.id) {
+                const year = parseInt(input.id.split('-')[2]);
+                if (!isNaN(year)) {
+                    formData.expectedAnnualIncomes[year] = parseFloat(input.value) || 0;
+                }
+            }
         });
     }
 
-    const results = processData(formData);
-    displayResults(results);
-}
-
-function initializeForm() {
-    const form = document.getElementById('tax-spread-form');
-    const workYearsInput = document.getElementById('work-years');
-    const incomeDateInput = document.getElementById('income-date');
-    const calculateBackwardInput = document.getElementById('calculate-backward');
-    
-    // Set current date
-    const currentDate = new Date();
-    incomeDateInput.valueAsDate = currentDate;
-    
-    // Remove existing event listeners
-    form.removeEventListener('submit', handleFormSubmit);
-    workYearsInput.removeEventListener('input', updateDynamicInputs);
-    incomeDateInput.removeEventListener('change', updateDynamicInputs);
-    calculateBackwardInput.removeEventListener('change', updateDynamicInputs);
-    
-    // Add fresh event listeners
-    form.addEventListener('submit', handleFormSubmit);
-    workYearsInput.addEventListener('input', updateDynamicInputs);
-    incomeDateInput.addEventListener('change', updateDynamicInputs);
-    calculateBackwardInput.addEventListener('change', updateDynamicInputs);
-    
-    // Initialize dynamic inputs
-    updateDynamicInputs();
-}
-
-document.getElementById('new-calculation-button').addEventListener('click', function() {
-    // Reset form and clear fields
-    const form = document.getElementById('tax-spread-form');
-    form.reset();
-    
-    // Clear dynamic inputs
-    document.getElementById('expected-incomes').innerHTML = '';
-    document.getElementById('past-incomes').innerHTML = '';
-    
-    // Hide results and show form
-    document.getElementById('results').style.display = 'none';
-    document.getElementById('tax-spread-form').style.display = 'block';
-    
-    // Clear existing chart
-    if (window.taxChart) {
-        window.taxChart.destroy();
-        window.taxChart = null;
+    // Collect past annual incomes
+    const pastInputs = document.querySelectorAll('#past-incomes input');
+    if (pastInputs) {
+        pastInputs.forEach(input => {
+            if (input && input.id) {
+                const year = parseInt(input.id.split('-')[2]);
+                if (!isNaN(year)) {
+                    formData.pastAnnualIncomes[year] = parseFloat(input.value) || 0;
+                }
+            }
+        });
     }
-    
-    // Reinitialize the form
-    initializeForm();
-    
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-});
 
-document.addEventListener('DOMContentLoaded', initializeForm);
+    try {
+        const results = processData(formData);
+        console.log('Processed results:', results);
+        displayResults(results);
+    } catch (error) {
+        console.error('Error processing form data:', error);
+        alert('אירעה שגיאה בעיבוד הנתונים. אנא נסה שנית.');
+    }
+}
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS' }).format(amount);
+}
+
+// אתחול והפעלת המחשבון
+function initializeEventListeners() {
+    const workStartDateInput = document.getElementById('work-start-date');
+    if (workStartDateInput) {
+        workStartDateInput.addEventListener('blur', function() {
+            if (validateDateInputs()) {
+                updateDynamicInputs();
+            }
+        });
+    }
+
+    const incomeDateInput = document.getElementById('income-date');
+    if (incomeDateInput) {
+        incomeDateInput.addEventListener('blur', function() {
+            if (validateDateInputs()) {
+                updateDynamicInputs();
+            }
+        });
+    }
+
+    const incomeTypeSelect = document.getElementById('income-type');
+    if (incomeTypeSelect) {
+        incomeTypeSelect.addEventListener('change', updateDynamicInputs);
+    }
+
+    const taxSpreadForm = document.getElementById('tax-spread-form');
+    if (taxSpreadForm) {
+        taxSpreadForm.addEventListener('submit', handleFormSubmit);
+    }
+
+    const newCalculationButton = document.getElementById('new-calculation-button');
+    if (newCalculationButton) {
+        newCalculationButton.addEventListener('click', resetForm);
+    }
+
+    const printButton = document.getElementById('print-button');
+    if (printButton) {
+        printButton.addEventListener('click', printResults);
+    }
+
+    const pdfExportButton = document.getElementById('pdf-export-button');
+    if (pdfExportButton) {
+        pdfExportButton.addEventListener('click', exportToPDF);
+    }
+}
+
+function toggleDropdown(button) {
+    const content = button.closest('.result-category').querySelector('.dropdown-content');
+    if (content) {
+        const isHidden = content.style.display === 'none';
+        content.style.display = isHidden ? 'block' : 'none';
+        button.textContent = isHidden ? '▲' : '▼';
+        
+        // Update button aria-label for accessibility
+        button.setAttribute('aria-label', isHidden ? 'הסתר תוצאות' : 'הצג תוצאות');
+        button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+    }
+}
+
+function initializeCalculator() {
+    const currentDate = new Date();
+    const incomeDateInput = document.getElementById('income-date');
+    if (incomeDateInput) {
+        incomeDateInput.valueAsDate = currentDate;
+        incomeDateInput.setAttribute('placeholder', 'DD/MM/YYYY');
+    }
+
+    const workStartDateInput = document.getElementById('work-start-date');
+    if (workStartDateInput) {
+        workStartDateInput.valueAsDate = null;
+        workStartDateInput.setAttribute('placeholder', 'DD/MM/YYYY');
+    }
+
+    // Initialize income type select options
+    const incomeTypeSelect = document.getElementById('income-type');
+    if (incomeTypeSelect) {
+        // Clear existing options
+        incomeTypeSelect.innerHTML = '<option value="">בחר סוג מענק</option>';
+        
+        // Add new options
+        Object.entries(INCOME_TYPES).forEach(([value, type]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = type.name;
+            incomeTypeSelect.appendChild(option);
+        });
+    }
+
+    updateDynamicInputs();
+    initializeEventListeners();
+}
+
+document.addEventListener('DOMContentLoaded', initializeCalculator);
