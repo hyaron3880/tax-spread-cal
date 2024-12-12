@@ -30,10 +30,7 @@ body {
 }
 
 header {
-    background: linear-gradient(135deg, #3498db, #2980b9);
-    color: white;
     padding: 2rem 0;
-    box-shadow: 0 5px 10px var(--shadow-color);
 }
 
 .logo {
@@ -49,7 +46,7 @@ header {
 }
 
 main {
-    padding: 3rem 0;
+    padding-top: 2rem;
 }
 
 .calculator-container {
@@ -370,6 +367,20 @@ footer {
     padding: 1.5rem 0;
     text-align: center;
     margin-top: 3rem;
+}
+
+.calculator-footer {
+    text-align: center;
+    margin-top: 2rem;
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    color: var(--text-color);
+}
+
+.calculator-footer p {
+    margin: 0;
+    opacity: 0.8;
 }
 
 #calculate-button {
