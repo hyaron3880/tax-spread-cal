@@ -113,8 +113,15 @@
                     <div id="tax-table"></div>
                 </div>
                 <div class="button-group">
-                    <button id="print-button" type="button"><i class="fas fa-print"></i> הדפס תוצאות</button>
-                    <button id="pdf-export-button" type="button"><i class="fas fa-file-pdf"></i> ייצא ל-PDF</button>
+                    <button onclick="printResults()" class="action-button">
+                        <i class="fas fa-print"></i> הדפסה
+                    </button>
+                    <button onclick="exportToPDF()" class="action-button">
+                        <i class="fas fa-file-pdf"></i> ייצוא ל-PDF
+                    </button>
+                    <button onclick="showSummary()" class="action-button">
+                        <i class="fas fa-file-alt"></i> הצג סיכום
+                    </button>
                 </div>
             </div>
             <button id="new-calculation-button" style="display: none;"><i class="fas fa-redo"></i> חישוב חדש</button>

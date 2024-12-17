@@ -100,7 +100,9 @@ function calculateSpreadTax(data, spreadYears, direction = 'forward', delay = fa
     let annualIncomes;
     
     if (direction === 'forward') {
-        yearsRange = Array.from({length: spreadYears}, (_, i) => incomeYear + i);
+        // If delay is true, start from next year
+        const startYear = delay ? incomeYear + 1 : incomeYear;
+        yearsRange = Array.from({length: spreadYears}, (_, i) => startYear + i);
         annualIncomes = data.expectedAnnualIncomes || {};
     } else {
         yearsRange = Array.from({length: spreadYears}, (_, i) => incomeYear - i).reverse();
@@ -198,10 +200,32 @@ function processData(data) {
         ...results.delaySpread,
         ...(results.backwardSpread ? [results.backwardSpread] : [])
     ];
-    
-    results.bestOption = allOptions.reduce((best, current) => 
-        current.tax < best.tax ? current : best
-    );
+
+    // Check if delay is beneficial (high income in first year)
+    const firstYearIncome = data.expectedAnnualIncomes[incomeYear] || 0;
+    const nextYearIncome = data.expectedAnnualIncomes[incomeYear + 1] || 0;
+    const shouldPreferDelay = firstYearIncome > nextYearIncome * 1.2; // 20% higher income in first year
+
+    results.bestOption = allOptions.reduce((best, current) => {
+        // Get option types
+        const isCurrentDelay = current.title?.includes('דחייה');
+        const isBestDelay = best.title?.includes('דחייה');
+
+        // If should prefer delay and comparing delay vs non-delay
+        if (shouldPreferDelay && isCurrentDelay !== isBestDelay) {
+            return isCurrentDelay ? current : best;
+        }
+
+        // If taxes are significantly different
+        if (current.tax < best.tax - 0.01) return current;
+        
+        // If taxes are effectively equal, prefer shorter period
+        if (Math.abs(current.tax - best.tax) <= 0.01) {
+            return (!current.years || current.years < best.years) ? current : best;
+        }
+        
+        return best;
+    });
     
     return results;
 }
@@ -314,13 +338,28 @@ function displayResults(results) {
 }
 
 function createResultCard(option, isBestOption = false) {
+    if (!option) return '';
+    
+    // שמירת המידע בdata attributes בלי להציג אותו
+    let taxYearsHtml = '';
+    if (option.taxPerYear) {
+        taxYearsHtml = '<div class="tax-years" style="display: none;">';
+        option.taxPerYear.forEach(([year, tax]) => {
+            taxYearsHtml += `<div class="tax-year" data-year="${year}" data-tax="${tax}"></div>`;
+        });
+        taxYearsHtml += '</div>';
+    }
+    
     return `
-        <div class="result-card">
-            <h4>${option.title}</h4>
-            <p><i class="fas fa-money-bill-wave"></i> סך המס: ${formatCurrency(option.tax)}</p>
-            <p><i class="fas fa-hand-holding-usd"></i> הכנסה נטו: ${formatCurrency(option.netIncome)}</p>
-            <p><i class="fas fa-percent"></i> שיעור מס ממוצע: ${option.averageTaxRate.toFixed(1)}%</p>
-            ${isBestOption ? '<p><i class="fas fa-check-circle"></i> האפשרות הטובה ביותר</p>' : ''}
+        <div class="result-card${isBestOption ? ' best-option' : ''}">
+            <h3>${option.title || 'תוצאה'}</h3>
+            <div class="result-details">
+                <p>סך המס: <span data-tax="${option.tax}">${formatCurrency(option.tax)}</span></p>
+                <p>הכנסה נטו: ${formatCurrency(option.netIncome)}</p>
+                <p>שיעור מס ממוצע: ${option.averageTaxRate.toFixed(1)}%</p>
+                ${taxYearsHtml}
+            </div>
+            ${isBestOption ? '<div class="best-option-label">האפשרות הטובה ביותר</div>' : ''}
         </div>
     `;
 }
@@ -710,3 +749,139 @@ function initializeCalculator() {
 }
 
 document.addEventListener('DOMContentLoaded', initializeCalculator);
+
+// יצירת סיכום מילולי של החישוב
+function generateSummary(results, data) {
+    const bestOption = results.bestOption;
+    const noSpreadOption = results.noSpread;
+    const savings = noSpreadOption.tax - bestOption.tax;
+    const incomeYear = new Date(data.incomeDate).getFullYear();
+    
+    let summaryText = '';
+    
+    // פרטי ההכנסה
+    summaryText += `קיבלת מענק בסך ${formatCurrency(data.incomeAmount)} בשנת ${incomeYear}.\n\n`;
+    
+    // ההמלצה האופטימלית
+    summaryText += `ההמלצה האופטימלית היא ${bestOption.title}.\n`;
+    summaryText += `באפשרות זו תשלם מס בסך ${formatCurrency(bestOption.tax)} במקום ${formatCurrency(noSpreadOption.tax)}`;
+    summaryText += ` (חיסכון של ${formatCurrency(savings)}).\n\n`;
+    
+    // חובת הגשת דוחות
+    const isDelayOption = bestOption.title?.includes('דחייה');
+    const reportYears = new Set();
+    
+    // הוספת שנות הפריסה
+    if (bestOption.taxPerYear) {
+        bestOption.taxPerYear.forEach(([year]) => reportYears.add(year));
+    }
+    
+    // הוספת שנת הדחייה אם רלוונטי
+    if (isDelayOption) {
+        reportYears.add(incomeYear);
+    }
+    
+    // מיון השנים
+    const sortedYears = Array.from(reportYears).sort();
+    summaryText += `עליך להגיש דוחות שנתיים בגין השנים ${sortedYears.join(', ')}.`;
+    
+    return summaryText;
+}
+
+function showSummary() {
+    // בדיקה אם יש תוצאות
+    const resultsSection = document.getElementById('results');
+    if (resultsSection.style.display === 'none') {
+        alert('אנא בצע חישוב תחילה');
+        return;
+    }
+    
+    // שליפת הנתונים מהשדות
+    const incomeAmount = parseFloat(document.getElementById('income-amount').value);
+    const incomeDate = document.getElementById('income-date').value;
+    
+    const data = {
+        incomeAmount,
+        incomeDate,
+        expectedAnnualIncomes: {},
+        pastAnnualIncomes: {}
+    };
+    
+    // שליפת ההכנסות השנתיות
+    const incomeYear = new Date(incomeDate).getFullYear();
+    const incomeInputs = document.querySelectorAll('[id^="income-"]');
+    incomeInputs.forEach(input => {
+        const match = input.id.match(/income-(\d+)/);
+        if (match && input.value) {
+            const year = parseInt(match[1]);
+            const value = parseFloat(input.value) || 0;
+            if (year >= incomeYear) {
+                data.expectedAnnualIncomes[year] = value;
+            } else {
+                data.pastAnnualIncomes[year] = value;
+            }
+        }
+    });
+    
+    // שליפת התוצאות הקיימות
+    const bestOptionCard = document.querySelector('#optimal-result .result-card');
+    const noSpreadCard = document.querySelector('#no-spread-result .result-card');
+    
+    if (!bestOptionCard || !noSpreadCard) {
+        alert('לא נמצאו תוצאות חישוב');
+        return;
+    }
+    
+    const results = {
+        bestOption: {
+            title: bestOptionCard.querySelector('h3').textContent,
+            tax: parseFloat(bestOptionCard.querySelector('[data-tax]').dataset.tax),
+            taxPerYear: Array.from(bestOptionCard.querySelectorAll('.tax-year')).map(el => {
+                const year = parseInt(el.dataset.year);
+                const tax = parseFloat(el.dataset.tax);
+                return [year, tax];
+            })
+        },
+        noSpread: {
+            tax: parseFloat(noSpreadCard.querySelector('[data-tax]').dataset.tax)
+        }
+    };
+    
+    // יצירת הסיכום והצגתו
+    const summaryText = generateSummary(results, data);
+    
+    // הצגת הסיכום בחלון מודאלי
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>סיכום החישוב</h2>
+            <pre>${summaryText}</pre>
+            <button onclick="copyToClipboard(this.previousElementSibling.textContent)" class="action-button">
+                <i class="fas fa-copy"></i> העתק לזיכרון
+            </button>
+        </div>
+    `;
+    
+    // סגירת המודאל
+    const closeBtn = modal.querySelector('.close');
+    closeBtn.onclick = () => modal.remove();
+    
+    // סגירה בלחיצה מחוץ למודאל
+    modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+    };
+    
+    document.body.appendChild(modal);
+}
+
+// פונקציה להעתקת טקסט ללוח
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert('הטקסט הועתק ללוח');
+    }).catch(err => {
+        console.error('שגיאה בהעתקה:', err);
+        alert('שגיאה בהעתקה');
+    });
+}
