@@ -199,33 +199,32 @@ function processData(data) {
         ...results.forwardSpread,
         ...results.delaySpread,
         ...(results.backwardSpread ? [results.backwardSpread] : [])
-    ];
+    ].sort((a, b) => a.tax - b.tax);
 
-    // Check if delay is beneficial (high income in first year)
-    const firstYearIncome = data.expectedAnnualIncomes[incomeYear] || 0;
-    const nextYearIncome = data.expectedAnnualIncomes[incomeYear + 1] || 0;
-    const shouldPreferDelay = firstYearIncome > nextYearIncome * 1.2; // 20% higher income in first year
+    // Find the option with lowest tax
+    let bestOption = allOptions[0];
+    let bestOptionNote = '';
 
-    results.bestOption = allOptions.reduce((best, current) => {
-        // Get option types
-        const isCurrentDelay = current.title?.includes('דחייה');
-        const isBestDelay = best.title?.includes('דחייה');
-
-        // If should prefer delay and comparing delay vs non-delay
-        if (shouldPreferDelay && isCurrentDelay !== isBestDelay) {
-            return isCurrentDelay ? current : best;
-        }
-
-        // If taxes are significantly different
-        if (current.tax < best.tax - 0.01) return current;
+    // Check if there's a better option with fewer years due to annual tax report cost
+    if (bestOption.years) {  // Only for spread options
+        const TAX_REPORT_COST = 1200;  // Annual tax report cost in NIS
         
-        // If taxes are effectively equal, prefer shorter period
-        if (Math.abs(current.tax - best.tax) <= 0.01) {
-            return (!current.years || current.years < best.years) ? current : best;
+        // Look for options with fewer years
+        for (let i = 1; i < allOptions.length; i++) {
+            const currentOption = allOptions[i];
+            if (currentOption.years && currentOption.years < bestOption.years) {
+                const taxDifference = currentOption.tax - bestOption.tax;
+                if (taxDifference < TAX_REPORT_COST * (bestOption.years - currentOption.years)) {
+                    bestOptionNote = `\nהערה: קיימת אפשרות לפריסה ל-${bestOption.years} שנים עם חיסכון נוסף של ${formatCurrency(bestOption.tax - currentOption.tax)} ש"ח, אך עלות הגשת דוח שנתי נוסף הופכת אפשרות זו ללא כדאית.`;
+                    bestOption = currentOption;
+                    break;
+                }
+            }
         }
-        
-        return best;
-    });
+    }
+
+    results.bestOption = bestOption;
+    results.bestOptionNote = bestOptionNote;
     
     return results;
 }
@@ -262,7 +261,13 @@ function displayResults(results) {
     }
 
     // Display optimal result first
-    optimalResult.innerHTML = createResultCard(results.bestOption, true);
+    if (results.bestOption) {
+        let bestOptionHtml = createResultCard(results.bestOption, true);
+        if (results.bestOptionNote) {
+            bestOptionHtml += `<div class="alert alert-info mt-2">${results.bestOptionNote}</div>`;
+        }
+        optimalResult.innerHTML = bestOptionHtml;
+    }
 
     // Display no spread result
     noSpreadResult.innerHTML = createResultCard(results.noSpread);
@@ -290,6 +295,45 @@ function displayResults(results) {
     const savings = results.noSpread.tax - results.bestOption.tax;
     totalSavings.textContent = `חיסכון כולל: ${formatCurrency(savings)}`;
 
+    // Create tax table
+    if (taxTable) {
+        let tableRows = '';
+        const isDelayBest = results.bestOption?.title?.includes('דחייה');
+        const relevantOptions = isDelayBest ? results.delaySpread : results.forwardSpread;
+        
+        // Add no spread option (1 year)
+        tableRows += `
+            <tr>
+                <td>1</td>
+                <td>${formatCurrency(results.noSpread.tax)}</td>
+            </tr>
+        `;
+
+        // Add spread options
+        relevantOptions.forEach(option => {
+            tableRows += `
+                <tr>
+                    <td>${option.years}</td>
+                    <td>${formatCurrency(option.tax)}</td>
+                </tr>
+            `;
+        });
+
+        taxTable.innerHTML = `
+            <table class="tax-table">
+                <thead>
+                    <tr>
+                        <th>שנות פריסה</th>
+                        <th>סה"כ מס</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+        `;
+    }
+
     // Keep all dropdown contents closed by default
     const dropdownContents = resultsSection.querySelectorAll('.dropdown-content');
     dropdownContents.forEach(content => {
@@ -300,35 +344,6 @@ function displayResults(results) {
             button.setAttribute('aria-expanded', 'false');
         }
     });
-
-    // Create and display tax table
-    const taxTableContainer = document.getElementById('tax-table');
-    if (taxTableContainer) {
-        let tableHtml = `
-            <table class="tax-table">
-                <thead>
-                    <tr>
-                        <th>שנות פריסה</th>
-                        <th>סה"כ מס</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>1</td>
-                        <td>${formatCurrency(results.noSpread.tax)}</td>
-                    </tr>`;
-        
-        results.forwardSpread.forEach((option, index) => {
-            tableHtml += `
-                <tr>
-                    <td>${index + 2}</td>
-                    <td>${formatCurrency(option.tax)}</td>
-                </tr>`;
-        });
-        
-        tableHtml += '</tbody></table>';
-        taxTableContainer.innerHTML = tableHtml;
-    }
 
     // Render the results chart
     renderResultsChart(results);
@@ -355,7 +370,7 @@ function createResultCard(option, isBestOption = false) {
             <h3>${option.title || 'תוצאה'}</h3>
             <div class="result-details">
                 <p>סך המס: <span data-tax="${option.tax}">${formatCurrency(option.tax)}</span></p>
-                <p>הכנסה נטו: ${formatCurrency(option.netIncome)}</p>
+                <p>סכום המענק נטו: ${formatCurrency(option.netIncome)}</p>
                 <p>שיעור מס ממוצע: ${option.averageTaxRate.toFixed(1)}%</p>
                 ${taxYearsHtml}
             </div>
