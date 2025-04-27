@@ -47,7 +47,9 @@ function calculateWorkYears(startDate, endDate) {
     
     const workYearsDisplay = document.getElementById('work-years-display');
     if (workYearsDisplay) {
-        workYearsDisplay.textContent = `ותק: ${years} שנים ו-${months} חודשים`;
+        // חישוב ערך עשרוני מדויק של הוותק
+        const decimalYears = (totalMonths / 12).toFixed(2);
+        workYearsDisplay.textContent = `ותק: ${decimalYears} שנים`;
     }
     
     return Math.max(0, Math.round(totalMonths / 6) / 2); // Round to nearest 0.5
@@ -162,21 +164,31 @@ function processData(data) {
         });
     }
     
-    // Forward spread with delay
-    const canDelay = incomeDate.getMonth() >= 8;
-    if (canDelay) {
-        const maxDelayYears = incomeDate.getDate() >= 30 ? Math.floor(spreadYears) : Math.floor(spreadYears) - 1;
-        for (let years = 2; years <= maxDelayYears; years++) {
-            const [spreadTax, taxPerYear] = calculateSpreadTax(data, years, 'forward', true);
-            results.delaySpread.push({
-                title: `פריסה קדימה עם דחייה - ${years} שנים`,
-                years,
-                tax: spreadTax,
-                netIncome: data.incomeAmount - spreadTax,
-                averageTaxRate: (spreadTax / data.incomeAmount) * 100,
-                taxPerYear
-            });
-        }
+    // Forward spread with delay - זמין לכולם אבל עם תנאים שונים
+    // אם תאריך הפרישה הוא לפני הרבעון האחרון (לפני 30.9), אז מספר שנות הפריסה מופחת ב-1
+    const isLastQuarter = incomeDate.getMonth() >= 8;
+    
+    // מחשב את מספר שנות הפריסה המקסימלי עבור פריסה עם דחייה
+    let maxDelayYears;
+    if (isLastQuarter) {
+        // פרישה ברבעון האחרון - ניתן לפרוס מספר מלא של שנים
+        maxDelayYears = Math.floor(spreadYears);
+    } else {
+        // פרישה לפני הרבעון האחרון - מספר שנות הפריסה מופחת ב-1
+        maxDelayYears = Math.max(2, Math.floor(spreadYears) - 1);
+    }
+    
+    // הוספת אופציות פריסה עם דחייה (זמין לכולם)
+    for (let years = 2; years <= maxDelayYears; years++) {
+        const [spreadTax, taxPerYear] = calculateSpreadTax(data, years, 'forward', true);
+        results.delaySpread.push({
+            title: `פריסה קדימה עם דחייה - ${years} שנים`,
+            years,
+            tax: spreadTax,
+            netIncome: data.incomeAmount - spreadTax,
+            averageTaxRate: (spreadTax / data.incomeAmount) * 100,
+            taxPerYear
+        });
     }
     
     // Backward spread
@@ -483,6 +495,19 @@ function updateDynamicInputs() {
     const workYears = calculateWorkYears(workStartDate, incomeDate);
     const currentYear = incomeDate.getFullYear();
     const spreadYears = calculateSpreadYears(workYears);
+    
+    // בדיקה אם תאריך הפרישה הוא ברבעון האחרון של השנה (אחרי 30 בספטמבר)
+    const isLastQuarter = incomeDate.getMonth() >= 9; // חודשים מתחילים מ-0
+    
+    // חישוב מספר השנים המקסימלי לפריסה, תוך התחשבות בוותק וברבעון האחרון
+    let maxSpreadYears = Math.floor(spreadYears);
+    
+    // אם יש מספיק ותק לשנה שביעית (6 שנות פריסה או יותר) וזה ברבעון האחרון
+    if (isLastQuarter && workYears >= 24) { // 24 שנים = 6 שנות פריסה (לפי היחס של 1:4)
+        maxSpreadYears = Math.min(7, maxSpreadYears + 1); // מוסיף שנה נוספת, עד מקסימום 7
+    } else {
+        maxSpreadYears = Math.min(6, maxSpreadYears); // מגביל ל-6 שנים אם לא בתנאים המתאימים
+    }
 
     const incomeType = incomeTypeSelect.value;
     const forwardSpreadTypes = ['severance', 'death-grant', 'pension-cap'];
@@ -495,7 +520,7 @@ function updateDynamicInputs() {
         if (isForwardSpread) {
             forwardSection.style.display = 'block';
             backwardSection.style.display = 'none';
-            createDynamicInputs('expected-incomes', currentYear, currentYear + Math.floor(spreadYears));
+            createDynamicInputs('expected-incomes', currentYear, currentYear + maxSpreadYears - 1);
         } else {
             forwardSection.style.display = 'none';
             backwardSection.style.display = 'block';
